@@ -1,4 +1,5 @@
 import collections
+import tags
 
 
 class Tokens:
@@ -52,6 +53,100 @@ class StringIterator(collections.Iterator):
         else:
             raise StopIteration
 
+class TagGraph(object):
+    
+    def __init__(self, tokens):
+        self.tokens = tokens
+            
+    class TagGraphBuilder(object):
+        
+        def __init__(self, tokens):
+            self.tokens = tokens
+            self.current_tag = tags.TemplateContentTag([])        
+            self.graph = [self.current_tag]    
+            self.tag_stack = [self.current_tag]
+            self.token_processors = {
+                Tokens.RAW_STRING: self.process_raw_string,
+                Tokens.TAG_OPEN_START: self.process_tag_open_start,
+                Tokens.TAG_OPEN_CONTENT: self.process_tag_open_content,
+                Tokens.TAG_OPEN_END: self.process_tag_open_end,
+                Tokens.TAG_CLOSE_START: self.process_tag_close_start,
+                Tokens.TAG_CLOSE_CONTENT: self.process_tag_close_content,
+                Tokens.TAG_CLOSE_END: self.process_tag_close_end,
+            }
+        
+        def graph_tags(self):            
+            for token in self.tokens:
+                processor = self.token_processors.get(token.type, None)
+                if processor:
+                    processor(token)
+            
+            return self.graph
+            
+        def process_raw_string(self, token):            
+            self.current_tag.children.append(tags.LiteralContent(token.value))
+        
+        def process_tag_open_start(self, token):
+            pass
+        
+        def process_tag_open_content(self, token):
+            #Tags have two parts, a method and optional arguments.  The method is either 
+            #separated by arguments by a string (like to_lower) or it's a shortcut 
+            #non-alpha string of characters, like : or > 
+                    
+            method_buffer = ''
+            method = None        
+            argument_buffer = ''
+            arguments = []
+            string_iterator = StringIterator(token.value.strip())
+            for character in string_iterator:
+                if not method:
+                    method_buffer += character
+                    
+                    if not character.isalpha() and not character in ['_', '-']:
+                        method = method_buffer.strip()
+                else:                
+                    if character == ' ' and not string_iterator.in_quoted_content:
+                        if len(argument_buffer.strip()):
+                            arguments.append(argument_buffer.strip())
+                        argument_buffer = ''
+                    else:
+                        argument_buffer += character
+    
+            if len(argument_buffer.strip()):
+                arguments.append(argument_buffer.strip())                    
+            
+            tag_class = tags.TagMap.get(method, None)
+            if not tag_class:
+                raise Exception("Tag not found: " + method)
+                                    
+            tag = tag_class(arguments)
+            self.current_tag.children.append(tag)
+            
+            if issubclass(tag_class, tags.PairedTag):                
+                self.current_tag = tag
+                self.tag_stack.append(tag)
+                    
+        def process_tag_open_end(self, token):
+            pass
+        
+        def process_tag_close_start(self, token):
+            pass
+        
+        def process_tag_close_content(self, token):
+            tag_method = token.value.strip()
+            if type(self.current_tag).closing_literal == tag_method:
+                self.tag_stack.pop()
+                self.current_tag = self.tag_stack[-1]
+            else:                
+                raise Exception("Closing " + tag_method + " found for " + str(self.current_tag))
+        
+        def process_tag_close_end(self, token):
+            pass
+            
+    def get_tags(self):
+        return TagGraph.TagGraphBuilder(self.tokens).graph_tags()
+    
 class Token(object):
     
     def __init__(self, type, value):

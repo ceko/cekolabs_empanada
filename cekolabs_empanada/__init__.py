@@ -1,2 +1,2 @@
-from tokenizer import Tokenizer
-from renderer import TokenRenderer
+from tokenizer import Tokenizer, TagGraph
+from renderer import TagRenderer
