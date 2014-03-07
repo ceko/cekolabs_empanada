@@ -63,6 +63,11 @@ class OperatorTokens:
 
         return ret_dict[operator.lower()]
 
+class VariableTagTokens:
+    EXPRESSION = 1
+    FILTER_DELIMETER = 2
+    FILTER_FUNCTION = 3
+
 class ReservedCharacters:    
     TAG_OPEN = '{{'
     TAG_CLOSE = '}}'
@@ -143,7 +148,8 @@ class TagGraph(object):
             }
         
         def graph_tags(self):
-            for token in self.tokens:
+            self.token_iterator = self.tokens.__iter__()
+            for token in self.token_iterator:
                 processor = self.token_processors.get(token.type, None)
                 if processor:
                     processor(token)
@@ -162,7 +168,7 @@ class TagGraph(object):
             #non-alpha string of characters, like : or > 
                                             
             method_buffer = ''
-            method = None        
+            method = None
             argument_buffer = ''
             arguments = []
             string_iterator = StringIterator(token.value.strip())
@@ -193,6 +199,24 @@ class TagGraph(object):
                                     
             tag = tag_class(arguments)
             self.current_tag.children.append(tag)
+            
+            if tag_class is tags.VerbatimTag:
+                #verbatim tags just pass everything until the next closing tag 
+                #in literally.  there is no support for nesting verbatim tags.
+                token_value_buffer = ''                
+                #next token should be TAG_OPEN_END, so go twice
+                self.token_iterator.next()        
+                next_token = self.token_iterator.next()
+                while next_token:
+                    if next_token.type == TemplateTokens.TAG_CLOSE_CONTENT \
+                        and next_token.value.strip().lower() == 'verbatim':
+                        #cut off last two tokens, which were TAG_OPEN_CLOSE
+                        token_value_buffer = token_value_buffer[:-(len(ReservedCharacters.TAG_MATCH_SYMBOL)+len(ReservedCharacters.TAG_OPEN))]
+                        break                        
+                    else:
+                        token_value_buffer += next_token.value
+                    next_token = self.token_iterator.next()                    
+                tag.children.append(tags.LiteralContent(token_value_buffer))
             
             if issubclass(tag_class, tags.PairedTag):                
                 self.current_tag = tag
@@ -342,7 +366,7 @@ class TemplateTokenizer(object):
         for character in string_iterator:                                         
             cur_token_content += character
                 
-            if cur_token == TemplateTokens.RAW_STRING:                
+            if cur_token == TemplateTokens.RAW_STRING:
                 if tag_open_start_match():                    
                     yield Token(TemplateTokens.RAW_STRING, cur_token_content[:-2])
                     yield Token(TemplateTokens.TAG_OPEN_START, ReservedCharacters.TAG_OPEN)
@@ -372,4 +396,27 @@ class TemplateTokenizer(object):
                     cur_token_content = ''
         
         yield Token(TemplateTokens.RAW_STRING, cur_token_content)            
+
+class TemplateVariableTokenizer(object):
+    
+    def yield_tokens(self, expression):
+        expression = expression or ""
+        
+        cur_token = VariableTagTokens.EXPRESSION
+        cur_token_content = ''
+        
+        string_iterator = StringIterator(expression)
+        string_iterator.tracking_quotes = True
+        
+        for character in string_iterator:
+            cur_token_content += character
+            
+            if cur_token == VariableTagTokens.EXPRESSION or cur_token == VariableTagTokens.FILTER_FUNCTION:
+                if not string_iterator.in_quoted_content and character == '|':
+                    yield Token(cur_token, cur_token_content[:-1].strip())
+                    yield Token(VariableTagTokens.FILTER_DELIMETER, '|')                    
+                    cur_token = VariableTagTokens.FILTER_FUNCTION   
+                    cur_token_content = ''                 
+            
+        yield Token(cur_token, cur_token_content.strip())    
                     

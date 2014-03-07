@@ -1,3 +1,4 @@
+import tokenizer
 
 
 class TokenBase(object):
@@ -95,7 +96,7 @@ OPERATORS = {
     '/': infix(21, lambda context, x, y: x.eval(context) / y.eval(context)),
     'neg': prefix(30, lambda context, x: x.eval(context) * -1),
     #used for things that don't modify anything or are assumed, like +1
-    'null': prefix(30, lambda context, x: x.eval(context)), 
+    'null': prefix(30, lambda context, x: x.eval(context))     
 }
 
 # Assign 'id' to each:
@@ -156,8 +157,8 @@ class TopDownParser(object):
         retval = self.expression()
         # Check that we have exhausted all the tokens
         if self.current_token is not EndToken:
-            raise self.error_class("Unused '%s' at end of if expression." %
-                                   self.current_token.display())
+            raise Exception("Unused '%s' at end of if expression." %
+                                   self.current_token.display())        
         return retval
 
     def expression(self, rbp=0):        
@@ -169,4 +170,22 @@ class TopDownParser(object):
             self.current_token = self.next_token()
             left = t.led(left, self)
         return left
+
+class TemplateVarParser(object):
+    
+    def __init__(self, tokens):
+        self.tokens = tokens
+        
+    #returns a tuple of the original expression and function names to apply to it
+    def parse(self):
+        expression = None
+        filters = []
+        
+        for token in self.tokens:
+            if token.type == tokenizer.VariableTagTokens.EXPRESSION:
+                expression = token.value
+            elif token.type == tokenizer.VariableTagTokens.FILTER_FUNCTION:
+                filters.append(token.value)
+        
+        return (expression, filters)
     
