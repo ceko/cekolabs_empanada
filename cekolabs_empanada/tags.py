@@ -45,7 +45,7 @@ class LiteralContent(Tag):
     def __init__(self, content):
         self.content = content
     
-    def render(self, context):
+    def render(self, context):        
         return unicode(self.content)
 
 #tags should support expressions, like #index+1
@@ -61,6 +61,10 @@ class UnescapedContentTag(Tag):
         ct = tokenizer.ExpressionTokenizer()
         parser = parsers.TopDownParser(ct.yield_tokens(' '.join(self.args)))   
         return unicode(parser.parse().eval(context))
+
+class CommentTag(Tag):
+    def render(self, context):
+        return ''
 
 class IfTag(PairedTag):
     closing_literal = 'if'
@@ -150,6 +154,7 @@ TagMap = {
     'render' : EscapedContentTag,
     ':' : EscapedContentTag,
     '>' : UnescapedContentTag,
+    '#' : CommentTag,
     'if' : IfTag,
     'else' : ElseTag,
     'elif' : ElseTag,

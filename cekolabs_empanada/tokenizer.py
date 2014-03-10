@@ -81,7 +81,7 @@ class StringIterator(collections.Iterator):
         self.pos = 0
         self.in_quoted_content = False
         self.quote_char = None
-        self.tracking_quotes = False
+        self.tracking_quotes = True
         
     @property
     def in_quoted_content(self):
@@ -97,7 +97,7 @@ class StringIterator(collections.Iterator):
     
     @tracking_quotes.setter
     def tracking_quotes(self, value):
-        self._tracking_quotes = False
+        self._tracking_quotes = value
         
     def peekahead(self, extra=0, never_null = False):        
         if len(self.string) > self.pos+extra:
@@ -109,7 +109,7 @@ class StringIterator(collections.Iterator):
         for step in xrange(steps):
             self.next()
     
-    def next(self):
+    def next(self):        
         if len(self.string) > self.pos:
             self.pos += 1                 
             if self.in_quoted_content:
@@ -171,8 +171,7 @@ class TagGraph(object):
             method = None
             argument_buffer = ''
             arguments = []
-            string_iterator = StringIterator(token.value.strip())
-            string_iterator.tracking_quotes = True
+            string_iterator = StringIterator(token.value.strip())            
             for character in string_iterator:
                 if not method:
                     method_buffer += character
@@ -199,24 +198,6 @@ class TagGraph(object):
                                     
             tag = tag_class(arguments)
             self.current_tag.children.append(tag)
-            
-            if tag_class is tags.VerbatimTag:
-                #verbatim tags just pass everything until the next closing tag 
-                #in literally.  there is no support for nesting verbatim tags.
-                token_value_buffer = ''                
-                #next token should be TAG_OPEN_END, so go twice
-                self.token_iterator.next()        
-                next_token = self.token_iterator.next()
-                while next_token:
-                    if next_token.type == TemplateTokens.TAG_CLOSE_CONTENT \
-                        and next_token.value.strip().lower() == 'verbatim':
-                        #cut off last two tokens, which were TAG_OPEN_CLOSE
-                        token_value_buffer = token_value_buffer[:-(len(ReservedCharacters.TAG_MATCH_SYMBOL)+len(ReservedCharacters.TAG_OPEN))]
-                        break                        
-                    else:
-                        token_value_buffer += next_token.value
-                    next_token = self.token_iterator.next()                    
-                tag.children.append(tags.LiteralContent(token_value_buffer))
             
             if issubclass(tag_class, tags.PairedTag):                
                 self.current_tag = tag
@@ -263,11 +244,12 @@ class ExpressionTokenizer(object):
     def yield_tokens(self, expression):
         expression = expression or ""
                 
-        string_iterator = StringIterator(expression)        
+        string_iterator = StringIterator(expression)
         cur_literal = ''
         last_token = None
         
-        for character in string_iterator:            
+        for character in string_iterator:   
+                     
             if string_iterator.in_quoted_content:
                 cur_literal += character
             else:
@@ -346,10 +328,19 @@ class TemplateTokenizer(object):
         tag_in_quoted_content = False
         
         string_iterator = StringIterator(template)
+        string_iterator.tracking_quotes = False
+        in_verbatim = False        
+        
+        def token_map(token):
+            if in_verbatim:                
+                return Token(TemplateTokens.RAW_STRING, token.value)
+            else:
+                return token
         
         #tag open may look like {{
         def tag_open_start_match():                                       
-            return len(cur_token_content) > 1 \
+            return not in_verbatim and \
+                len(cur_token_content) > 1 \
                 and cur_token_content[-2:] == ReservedCharacters.TAG_OPEN \
                 and string_iterator.peekahead() <> ReservedCharacters.TAG_MATCH_SYMBOL                            
         
@@ -358,8 +349,9 @@ class TemplateTokenizer(object):
             return len(cur_token_content) > 1 and cur_token_content[-2:] == ReservedCharacters.TAG_CLOSE
                     
         #tag close start may look like {{/         
-        def tag_close_start_match():
-            return len(cur_token_content) > 2 \
+        def tag_close_start_match():            
+            return not(in_verbatim and not string_iterator.peekahead(7, never_null=True).lower() == 'verbatim') \
+                and len(cur_token_content) > 2 \
                 and cur_token_content[-3:-1] == ReservedCharacters.TAG_OPEN \
                 and cur_token_content[-1] == ReservedCharacters.TAG_MATCH_SYMBOL                
                     
@@ -368,30 +360,33 @@ class TemplateTokenizer(object):
                 
             if cur_token == TemplateTokens.RAW_STRING:
                 if tag_open_start_match():                    
-                    yield Token(TemplateTokens.RAW_STRING, cur_token_content[:-2])
-                    yield Token(TemplateTokens.TAG_OPEN_START, ReservedCharacters.TAG_OPEN)
+                    yield token_map(Token(TemplateTokens.RAW_STRING, cur_token_content[:-2]))
+                    yield token_map(Token(TemplateTokens.TAG_OPEN_START, ReservedCharacters.TAG_OPEN))
                     
                     cur_token = TemplateTokens.TAG_OPEN_CONTENT
                     cur_token_content = ''
                 elif tag_close_start_match():
-                    yield Token(cur_token, cur_token_content[:-3])
-                    yield Token(TemplateTokens.TAG_CLOSE_START, ReservedCharacters.TAG_OPEN + ReservedCharacters.TAG_MATCH_SYMBOL)
+                    in_verbatim = False
+                    yield token_map(Token(cur_token, cur_token_content[:-3]))
+                    yield token_map(Token(TemplateTokens.TAG_CLOSE_START, ReservedCharacters.TAG_OPEN + ReservedCharacters.TAG_MATCH_SYMBOL))
                     
                     cur_token = TemplateTokens.TAG_CLOSE_CONTENT
                     cur_token_content = ''
                     
             elif cur_token in [TemplateTokens.TAG_OPEN_CONTENT, TemplateTokens.TAG_CLOSE_CONTENT]:
                 if string_iterator.in_quoted_content:
-                    continue                 
-                
+                    continue
+                                                
                 if tag_end_match():
                     if cur_token == TemplateTokens.TAG_OPEN_CONTENT:
-                        yield Token(cur_token, cur_token_content[:-2])
-                        yield Token(TemplateTokens.TAG_OPEN_END, ReservedCharacters.TAG_CLOSE)
+                        yield token_map(Token(cur_token, cur_token_content[:-2]))
+                        yield token_map(Token(TemplateTokens.TAG_OPEN_END, ReservedCharacters.TAG_CLOSE))                        
+                        if cur_token_content[:-2].lower().strip().startswith('verbatim'):
+                            in_verbatim = True                        
                     else:
-                        yield Token(cur_token, cur_token_content[:-2])
-                        yield Token(TemplateTokens.TAG_CLOSE_END, ReservedCharacters.TAG_CLOSE)
-                   
+                        yield token_map(Token(cur_token, cur_token_content[:-2]))
+                        yield token_map(Token(TemplateTokens.TAG_CLOSE_END, ReservedCharacters.TAG_CLOSE))                        
+                                           
                     cur_token = TemplateTokens.RAW_STRING
                     cur_token_content = ''
         
@@ -405,8 +400,7 @@ class TemplateVariableTokenizer(object):
         cur_token = VariableTagTokens.EXPRESSION
         cur_token_content = ''
         
-        string_iterator = StringIterator(expression)
-        string_iterator.tracking_quotes = True
+        string_iterator = StringIterator(expression)        
         
         for character in string_iterator:
             cur_token_content += character
