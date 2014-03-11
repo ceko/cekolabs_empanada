@@ -1,6 +1,7 @@
 import tokenizer
 import parsers
 import filters
+import ast
 
 
 class ContextLookupFail(object):
@@ -17,7 +18,7 @@ class ContextWrap(object):
     def eval(self, expression):
         #supports string literals, numbers and object lookups
         retval = None
-        
+        print expression
         #Pipes are reserved characters that imply filters.  Filters are function lookups that do not
         #accept parameters.
         vt = tokenizer.TemplateVariableTokenizer()
@@ -29,7 +30,7 @@ class ContextWrap(object):
                 parsed_expression = parsed_expression.strip()
                 #if it starts with a quote it's a string literal
                 if parsed_expression.startswith('"') or parsed_expression.startswith("'"):                
-                    retval = unicode(parsed_expression[1:-1])
+                    retval = ast.literal_eval('u' + parsed_expression) #wooo this looks so dangerous
                 else:
                     try:
                         # Code borrowed from Django                        
@@ -51,7 +52,9 @@ class ContextWrap(object):
                 retval = parsed_expression
         
         for filter in expression_filters:
-            filter_func = filters.FilterMap[filter]
+            filter_func = filters.FilterMap.get(filter)
+            if not filter_func:
+                raise Exception('No filter with name ' + filter + ' found')
             retval = filter_func(retval)
                         
         return retval

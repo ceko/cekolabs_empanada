@@ -16,7 +16,7 @@ class TokenBase(object):
         return self.id
     
     def __repr__(self):
-        out = [str(x) for x in [self.id, self.first, self.second] if x is not None]
+        out = [unicode(x) for x in [self.id, self.first, self.second] if x is not None]
         return "(" + " ".join(out) + ")"
 
 class EndToken(TokenBase):

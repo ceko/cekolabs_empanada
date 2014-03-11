@@ -13,7 +13,7 @@ html_escape_table = {
 
 def html_escape(text):
     """Produce entities within text."""
-    return "".join(html_escape_table.get(c,c) for c in str(text))
+    return "".join(html_escape_table.get(c,c) for c in unicode(text))
 
 class Tag(object):
     def __init__(self, args):

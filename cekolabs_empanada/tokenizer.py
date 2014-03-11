@@ -111,16 +111,18 @@ class StringIterator(collections.Iterator):
     
     def next(self):        
         if len(self.string) > self.pos:
-            self.pos += 1                 
+            self.pos += 1
             if self.in_quoted_content:
-                #this doesn't handle escaped backslashes, but that's fine for this simple exercise.
-                if self.string[self.pos-1] == self.quote_char and self.string[self.pos-1] <> '\\':
-                    self.in_quoted_content = False
+                if self.string[self.pos-1] == '\\':                                        
+                    self.pos += 1
+                    return self.string[self.pos-2:self.pos]
+                elif self.quote_char == self.string[self.pos-1]:                    
+                    self.in_quoted_content = False    
             else:
                 if self.tracking_quotes and self.string[self.pos-1] in ['"', "'"]:                    
                     self.in_quoted_content = True
                     self.quote_char = self.string[self.pos-1]                   
-                    
+            
             return self.string[self.pos-1]
         else:
             raise StopIteration
@@ -217,7 +219,7 @@ class TagGraph(object):
                 self.tag_stack.pop()
                 self.current_tag = self.tag_stack[-1]
             else:                
-                raise Exception("Closing " + tag_method + " found for " + str(self.current_tag))
+                raise Exception("Closing " + tag_method + " found for " + repr(self.current_tag))
         
         def process_tag_close_end(self, token):
             pass
@@ -325,8 +327,7 @@ class TemplateTokenizer(object):
                 
         cur_token = TemplateTokens.RAW_STRING
         cur_token_content = ''
-        tag_in_quoted_content = False
-        
+                
         string_iterator = StringIterator(template)
         string_iterator.tracking_quotes = False
         in_verbatim = False        
@@ -401,16 +402,16 @@ class TemplateVariableTokenizer(object):
         cur_token_content = ''
         
         string_iterator = StringIterator(expression)        
-        
+                
         for character in string_iterator:
             cur_token_content += character
             
             if cur_token == VariableTagTokens.EXPRESSION or cur_token == VariableTagTokens.FILTER_FUNCTION:
-                if not string_iterator.in_quoted_content and character == '|':
+                if not string_iterator.in_quoted_content and character == '|':                    
                     yield Token(cur_token, cur_token_content[:-1].strip())
                     yield Token(VariableTagTokens.FILTER_DELIMETER, '|')                    
                     cur_token = VariableTagTokens.FILTER_FUNCTION   
                     cur_token_content = ''                 
             
-        yield Token(cur_token, cur_token_content.strip())    
+        yield Token(cur_token, cur_token_content.strip())
                     
